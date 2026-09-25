@@ -1,0 +1,13 @@
+{
+    "id": "hyprsubs",
+    "name": "hyprsubs",
+    "description": "Workspace switcher for the hyprsubs Hyprland plugin: one pill per group, one dot per sub",
+    "version": "0.1.0",
+    "author": "0TrashPanda",
+    "type": "widget",
+    "capabilities": ["dankbar-widget"],
+    "component": "./HyprsubsWidget.qml",
+    "icon": "view_week",
+    "requires_dms": ">=1.6.0",
+    "requires": ["hyprctl"]
+}

@@ -6,13 +6,28 @@ A DankMaterialShell bar widget for [hyprsubs](https://github.com/0TrashPanda/hyp
 
 ## Install
 
+Needs [hyprsubs](https://github.com/0TrashPanda/hyprsubs) installed and loaded (a build that sends the `hyprsubs>>` event), and DankMaterialShell **1.6.2** or newer.
+
+The widget is plain QML, so nothing gets built. Clone it somewhere stable and link the `hyprsubs/` directory into DMS's plugin folder:
+
 ```bash
-ln -s "$PWD/hyprsubs" ~/.config/DankMaterialShell/plugins/hyprsubs
-dms ipc call plugin-scan scan
-dms ipc call plugins enable hyprsubs
+git clone https://github.com/0TrashPanda/hyprsubs-dms ~/.local/src/hyprsubs-dms
+ln -s ~/.local/src/hyprsubs-dms/hyprsubs ~/.config/DankMaterialShell/plugins/hyprsubs
+
+dms ipc call plugin-scan scan          # or restart DMS
+dms ipc call plugins enable hyprsubs   # or DMS settings -> Plugins
 ```
 
-Then in DMS settings → Bar, put the **hyprsubs** widget where `workspaceSwitcher` was (left section).
+Then in DMS settings → Bar, remove **Workspace Switcher** and add **hyprsubs** in its place (left section).
+
+To update:
+
+```bash
+git -C ~/.local/src/hyprsubs-dms pull
+dms ipc call plugins reload hyprsubs
+```
+
+To uninstall, disable the plugin, delete the symlink and put the workspace switcher back.
 
 ---
 

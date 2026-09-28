@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Common
+import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
@@ -25,6 +26,14 @@ PluginComponent {
     // Hidden (not an empty pill) while the hyprsubs plugin isn't answering.
     _visibilityOverride: true
     _visibilityOverrideValue: subsState !== null
+
+    // Lua configs dispatch Lua (hl.plugin.hyprsubs.<action>(arg)), hyprlang configs hyprsubs:<action> arg.
+    function dispatch(action, arg) {
+        if (HyprlandService.luaConfigActive)
+            Hyprland.dispatch(`hl.plugin.hyprsubs.${action}(${JSON.stringify(arg)})`);
+        else
+            Hyprland.dispatch(`hyprsubs:${action} ${arg}`);
+    }
 
     function applyState(json) {
         try {
@@ -127,7 +136,7 @@ PluginComponent {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: Hyprland.dispatch(`hyprsubs:group ${groupPill.modelData.group}`)
+                        onClicked: root.dispatch("group", groupPill.modelData.group)
                     }
                 }
             }
@@ -144,7 +153,7 @@ PluginComponent {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: Hyprland.dispatch("hyprsubs:rowmode off")
+                    onClicked: root.dispatch("rowmode", "off")
                 }
             }
         }

@@ -56,12 +56,12 @@ One pill per group, in group order. Inside each pill, one dot per existing sub. 
 ## Row mode indicator
 
 - A small icon after the last pill, shown only while the row-mode toggle is on.
-- Clicking it runs `hyprsubs:rowmode off`.
+- Clicking it runs `hyprsubs:rowmode off` (`hl.plugin.hyprsubs.rowmode("off")` with a Lua config).
 - Nothing is shown while row mode is off, so there is nothing to click to turn it on. Use the bind or dispatcher for that.
 
 ## Mouse
 
-- **Click a pill:** `hyprsubs:group N`, the same as `SUPER + N`. That means the group's last-used sub, or cycling to the next sub when you're already in that group.
+- **Click a pill:** `hyprsubs:group N` (or `hl.plugin.hyprsubs.group(N)` with a Lua config), the same as `SUPER + N`. That means the group's last-used sub, or cycling to the next sub when you're already in that group.
 - No scroll handling. There's no per-dot click either: clicking anywhere on the pill counts as clicking the group.
 
 ## Data

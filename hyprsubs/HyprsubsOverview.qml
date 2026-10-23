@@ -21,12 +21,27 @@ Item {
     // plugin setting: group.sub number on empty subs instead of a + icon
     property bool emptyNumbers: pluginService ? pluginService.loadPluginData(pluginId, "emptySlotNumbers", true) : true
 
+    // plugin setting: key that closes the hovered window ("" = off)
+    property string closeKey: pluginService ? pluginService.loadPluginData(pluginId, "closeKey", "q") : "q"
+
+    // plugin setting: what the close key does on a window that already refused to close
+    // ("jump" to it, "kill" it, or "none")
+    property string closeAgain: pluginService ? pluginService.loadPluginData(pluginId, "closeAgain", "jump") : "jump"
+
+    // windows that were asked to close and are still there, by address
+    property var pendingClose: ({})
+
+    // address of the window under the cursor
+    property string hoveredAddress: ""
+
     Connections {
         target: root.pluginService
 
         function onPluginDataChanged(changedPluginId) {
             if (changedPluginId === root.pluginId)
                 root.emptyNumbers = root.pluginService.loadPluginData(root.pluginId, "emptySlotNumbers", true);
+                root.closeKey = root.pluginService.loadPluginData(root.pluginId, "closeKey", "q");
+                root.closeAgain = root.pluginService.loadPluginData(root.pluginId, "closeAgain", "jump");
         }
     }
 
@@ -77,6 +92,84 @@ Item {
             Hyprland.dispatch(`hyprsubs:${action} ${arg}`);
     }
 
+    // DMS's HyprlandService.closeWindow passes a bare selector, which Lua configs treat as "close the
+    // active window"; the table form targets the given window.
+    function closeWindow(address) {
+        closeRefresh.address = address;
+        closeRefresh.restart();
+
+        const selector = address.startsWith("0x") ? `address:${address}` : `address:0x${address}`;
+        if (HyprlandService.luaConfigActive)
+            Hyprland.dispatch(`hl.dsp.window.close({ window = "${selector}" })`);
+        else
+            Hyprland.dispatch(`closewindow ${selector}`);
+    }
+
+    function toplevelFor(address) {
+        return (Hyprland.toplevels?.values ?? []).find(t => t.lastIpcObject?.address === address) ?? null;
+    }
+
+    // Close key / middle-click: ask the window to close; if it already refused once, do what the
+    // "closeAgain" setting says.
+    function closeOrEscalate(address) {
+        if (!pendingClose[address]) {
+            closeWindow(address);
+            return;
+        }
+
+        if (closeAgain === "jump") {
+            closeOverview();
+            HyprlandService.focusWindow(address);
+        } else if (closeAgain === "kill") {
+            killWindow(address);
+            const next = Object.assign({}, pendingClose);
+            delete next[address];
+            pendingClose = next;
+        }
+    }
+
+    function killWindow(address) {
+        const selector = address.startsWith("0x") ? `address:${address}` : `address:0x${address}`;
+        if (HyprlandService.luaConfigActive) {
+            Hyprland.dispatch(`hl.dsp.window.kill({ window = "${selector}" })`);
+        } else {
+            const pid = toplevelFor(address)?.lastIpcObject?.pid;
+            if (pid)
+                Quickshell.execDetached(["kill", "-9", String(pid)]);
+        }
+    }
+
+    // The window may refuse to close (a confirm dialog, an unsaved-changes prompt): once it had time
+    // to answer, re-read the window list and restart the thumbnail's capture so it shows what it
+    // looks like now instead of a stale frame.
+    signal recapture(string address)
+
+    Timer {
+        id: closeRefresh
+        property string address: ""
+        interval: 350
+        onTriggered: {
+            Hyprland.refreshToplevels();
+            root.recapture(address);
+            pendingCheck.address = address;
+            pendingCheck.restart();
+        }
+    }
+
+    // after the refresh: still there means it refused (or is waiting on a prompt)
+    Timer {
+        id: pendingCheck
+        property string address: ""
+        interval: 400
+        onTriggered: {
+            if (!root.toplevelFor(address))
+                return;
+            const next = Object.assign({}, root.pendingClose);
+            next[address] = true;
+            root.pendingClose = next;
+        }
+    }
+
     function applyState(json) {
         try {
             const parsed = JSON.parse(json);
@@ -110,6 +203,8 @@ Item {
     }
 
     function closeOverview() {
+        hoveredAddress = "";
+        pendingClose = ({});
         open = false;
     }
 
@@ -298,7 +393,11 @@ Item {
 
                 Keys.onEscapePressed: root.closeOverview()
                 Keys.onPressed: event => {
-                    if (event.key === Qt.Key_Left)
+                    if (root.closeKey !== "" && event.text.toLowerCase() === root.closeKey.toLowerCase()) {
+                        if (root.hoveredAddress !== "") {
+                            root.closeOrEscalate(root.hoveredAddress);
+                        }
+                    } else if (event.key === Qt.Key_Left)
                         root.moveGroup(-1);
                     else if (event.key === Qt.Key_Right)
                         root.moveGroup(1);
@@ -439,6 +538,18 @@ Item {
                             readonly property real initY: (slot?.y ?? 0) + clipT
                             property bool dragging: false
                             property bool hovered: false
+                            property bool capturing: true
+
+                            Connections {
+                                target: root
+
+                                function onRecapture(address) {
+                                    if (address !== (win.info?.address ?? ""))
+                                        return;
+                                    win.capturing = false;
+                                    Qt.callLater(() => win.capturing = true);
+                                }
+                            }
 
                             readonly property var entry: DesktopEntries.heuristicLookup(Paths.moddedAppId(info?.class ?? ""))
                             readonly property string iconPath: Paths.getAppIcon(info?.class ?? "", entry) || Quickshell.iconPath("application-x-executable", "image-missing")
@@ -462,7 +573,7 @@ Item {
 
                                 ScreencopyView {
                                     anchors.fill: parent
-                                    captureSource: win.visible ? win.modelData.wayland : null
+                                    captureSource: win.visible && win.capturing ? win.modelData.wayland : null
                                     live: true
 
                                     Rectangle {
@@ -484,14 +595,40 @@ Item {
                                 }
                             }
 
+                            // asked to close and still open
+                            Rectangle {
+                                visible: root.pendingClose[win.info?.address ?? ""] === true
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.margins: 4
+                                width: Math.max(18, Math.min(parent.width, parent.height) * 0.22)
+                                height: width
+                                radius: width / 2
+                                color: Theme.primary
+
+                                DankIcon {
+                                    anchors.centerIn: parent
+                                    name: "hourglass_top"
+                                    size: parent.width * 0.65
+                                    color: Theme.primaryText
+                                }
+                            }
+
                             MouseArea {
                                 id: dragArea
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                                 drag.target: win
-                                onEntered: win.hovered = true
-                                onExited: win.hovered = false
+                                onEntered: {
+                                    win.hovered = true;
+                                    root.hoveredAddress = win.info?.address ?? "";
+                                }
+                                onExited: {
+                                    win.hovered = false;
+                                    if (root.hoveredAddress === (win.info?.address ?? ""))
+                                        root.hoveredAddress = "";
+                                }
 
                                 // slot under the cursor while dragging
                                 function updateDrop(mouse) {
@@ -535,7 +672,7 @@ Item {
                                         root.closeOverview();
                                         HyprlandService.focusWindow(address);
                                     } else if (event.button === Qt.MiddleButton) {
-                                        HyprlandService.closeWindow(address);
+                                        root.closeOrEscalate(address);
                                     }
                                 }
                             }
